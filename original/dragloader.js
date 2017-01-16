@@ -1,3 +1,4 @@
+// 微信浏览器中，如果绑定到body上，禁止下拉时会导致执行一次后插件失效
 !(function(window) {
     var document = window.document,
         navigator = window.navigator,
@@ -51,76 +52,40 @@
             target.transitionTimer = setTimeout(handler, duration + 100);
         };
 
-    // DEFAULT OPTIONS
-    var defaults = {
-        threshold: 80,
-        dragDownThreshold: 80,
-        dragUpThreshold: 80,
-        dragDownRegionCls: 'dragger-down',
-        dragUpRegionCls: 'dragger-up',
-        dragDownHelper: function() {},
-        dragUpHelper: function() {},
-        dragUpDom: {
-            before : '向下拉加载最新',
-            prepare : '释放刷新',
-            load: '加载中...'
-        },
-        dragDownDom: {
-            before : '向上拉加载更多',
-            prepare : '释放刷新',
-            load: '加载中...'
-        },
-    };
-
-    window.DragLoader = function(el, options) {
-        var that = this;
-        that.obj = el ? (typeof el === 'string' ? document.querySelector(el) : el) : document.body;
+    var DragLoader = function(el, options) {
+        this.ct = el ? (typeof el === 'string' ? document.querySelector(el) : el) : document.body;
         options = options || {};
+        this.options = options;
+        if (typeof options.threshold === 'undefined') options.threshold = 80;
+        if (typeof options.dragDownThreshold === 'undefined') options.dragDownThreshold = options.threshold;
+        if (typeof options.dragUpThreshold === 'undefined') options.dragUpThreshold = options.threshold;
 
-        for (var i in defaults) {
-            if (options[i] === undefined) {
-                options[i] = defaults[i];
-            }
-        }
-        that.options = options;
-        that._events = {};
-        that._draggable = true;
-        that.obj.addEventListener(TOUCH_EVENTS.start, that, false);
+        this._events = {};
+        this._draggable = true;
+
+        this.ct.addEventListener(TOUCH_EVENTS.start, this, false);
     };
 
     DragLoader.prototype = {
         STATUS: {
-            before: 'before',
+            default: 'default',
             prepare: 'prepare',
             load: 'load'
-        },
-
-        handleEvent: function(e) {
-            switch (e.type) {
-                case TOUCH_EVENTS.start:
-                    this._onTouchStrat(e);
-                    break;
-                case TOUCH_EVENTS.move:
-                    this._onTouchMove(e);
-                    break;
-                case TOUCH_EVENTS.end:
-                    this._onTouchEnd(e);
-                    break;
-            }
         },
 
         _createDragDownRegion: function() {
             this._removeDragDownRegion();
             this.header = document.createElement('div');
-            this.header.className = this.options.dragDownRegionCls;
+            this.header.style.cssText = 'position:relative;top:0;left:0;margin:0;padding:0;overflow:hidden;width:100%;height:0px;';
+            this.header.className = this.options.dragDownRegionCls || '';
             this._touchCoords.status = this._processStatus('down', 0, null, true);
-            this.obj.insertBefore(this.header, this.obj.children[0]);
+            this.ct.insertBefore(this.header, this.ct.children[0]);
             return this.header;
         },
 
         _removeDragDownRegion: function() {
             if (this.header) {
-                this.obj.removeChild(this.header);
+                this.ct.removeChild(this.header);
                 this.header = null;
             }
         },
@@ -128,36 +93,39 @@
         _createDragUpRegion: function() {
             this._removeDragUpRegion();
             this.footer = document.createElement('div');
-            this.footer.className = this.options.dragUpRegionCls;
+            this.footer.style.cssText = 'position:relative;bottom:0;left:0;margin:0;padding:0;overflow:hidden;width:100%;height:0px;';
+            this.footer.className = this.options.dragUpRegionCls || '';
             this._touchCoords.status = this._processStatus('up', 0, null, true);
-            this.obj.appendChild(this.footer);
+            this.ct.appendChild(this.footer);
             return this.footer;
         },
 
         _removeDragUpRegion: function() {
             if (this.footer) {
-                this.obj.removeChild(this.footer);
+                this.ct.removeChild(this.footer);
                 this.footer = null;
             }
         },
 
         _processDragDownHelper: function(status) {
-            var that = this;
-            if (!that.options.preventDragHelper) {
-                that.header.innerHTML = '<span>' + that.options.dragDownDom[status] + '</span>';
+            var options = this.options,
+                helper = options.dragDownHelper;
+            if (!options.preventDragHelper && helper) {
+                this.header.innerHTML = helper.call(this, status);
             }
         },
 
         _processDragUpHelper: function(status) {
-            var that = this;
-            if (!that.options.preventDragHelper) {
-                that.footer.innerHTML = '<span>' + that.options.dragUpDom[status] + '</span>';
+            var options = this.options,
+                helper = options.dragUpHelper;
+            if (!options.preventDragHelper && helper) {
+                this.footer.innerHTML = helper.call(this, status);
             }
         },
 
         /*
          * status:
-         *   before 默认状态
+         *   default 默认状态
          *   prepare 释放加载
          *   load 加载
          */
@@ -169,10 +137,10 @@
             if (orient) {
                 upperStr = orient.charAt(0).toUpperCase() + orient.substr(1);
                 overflow = offsetY > options['drag' + upperStr + 'Threshold'];
-                if (!overflow && currentStatus != STATUS.before) {
-                    this['_processDrag' + upperStr + 'Helper'].call(this, STATUS.before);
+                if (!overflow && currentStatus != STATUS.default) {
+                    this['_processDrag' + upperStr + 'Helper'].call(this, STATUS.default);
                     this._fireEvent('drag' + upperStr + 'Default');
-                    nextStatus = STATUS.before;
+                    nextStatus = STATUS.default;
                 } else if (moved && overflow && currentStatus != STATUS.prepare) {
                     this['_processDrag' + upperStr + 'Helper'].call(this, STATUS.prepare);
                     this._fireEvent('drag' + upperStr + 'Prepare');
@@ -187,14 +155,14 @@
         },
 
         _onTouchStrat: function(e) {
-            this.obj.removeEventListener(TOUCH_EVENTS.move, this, false);
-            this.obj.removeEventListener(TOUCH_EVENTS.end, this, false);
+            this.ct.removeEventListener(TOUCH_EVENTS.move, this, false);
+            this.ct.removeEventListener(TOUCH_EVENTS.end, this, false);
             var body = document.body,
-                startScrollY = this.obj === body ? (window.pageYOffset || window.scrollY || document.documentElement.scrollTop) : this.obj.scrollTop;
+                startScrollY = this.ct === body ? (window.pageYOffset || window.scrollY || document.documentElement.scrollTop) : this.ct.scrollTop;
             if (this._draggable && (this.options.disableDragDown !== true || this.options.disableDragUp !== true) && this._fireEvent('beforeDrag') !== false) {
                 this._draggable = false;
-                this.obj.addEventListener(TOUCH_EVENTS.move, this, false);
-                this.obj.addEventListener(TOUCH_EVENTS.end, this, false);
+                this.ct.addEventListener(TOUCH_EVENTS.move, this, false);
+                this.ct.addEventListener(TOUCH_EVENTS.end, this, false);
                 this._touchCoords = {};
                 this._touchCoords.startY = msPointerEnabled ? e.screenY : e.touches[0].screenY;
                 this._touchCoords.startScrollY = startScrollY;
@@ -202,7 +170,7 @@
         },
 
         _onTouchMove: function(e) {
-            var ct = this.obj, header = this.header, footer = this.footer,
+            var ct = this.ct, header = this.header, footer = this.footer,
                 options = this.options,
                 innerHeight = window.innerHeight,
                 ctHeight = ct.scrollHeight,
@@ -263,9 +231,10 @@
                 coords.blockY = stopY;
             }
         },
+
         _onTouchEnd: function(e) {
-            this.obj.removeEventListener(TOUCH_EVENTS.move, this, false);
-            this.obj.removeEventListener(TOUCH_EVENTS.end, this, false);
+            this.ct.removeEventListener(TOUCH_EVENTS.move, this, false);
+            this.ct.removeEventListener(TOUCH_EVENTS.end, this, false);
             this._translate();
         },
 
@@ -290,6 +259,7 @@
                         me._removeDragDownRegion();
                     }
                 };
+
             if (!coords) return;
 
             orient = coords.dragDown ? 'down' : (coords.dragUp ? 'up' : null);
@@ -351,19 +321,35 @@
             this.options.disableDragUp = disabled;
         },
 
+        handleEvent: function(e) {
+            switch (e.type) {
+                case TOUCH_EVENTS.start:
+                    this._onTouchStrat(e);
+                    break;
+                case TOUCH_EVENTS.move:
+                    this._onTouchMove(e);
+                    break;
+                case TOUCH_EVENTS.end:
+                    this._onTouchEnd(e);
+                    break;
+            }
+        },
 
         destroy: function() {
             if (!this.destroyed) {
                 this.destroyed = true;
                 this._removeDragDownRegion();
                 this._removeDragUpRegion();
-                this.obj.removeEventListener(TOUCH_EVENTS.start, this, false);
-                this.obj.removeEventListener(TOUCH_EVENTS.move, this, false);
-                this.obj.removeEventListener(TOUCH_EVENTS.end, this, false);
-                this.obj = null;
+                this.ct.removeEventListener(TOUCH_EVENTS.start, this, false);
+                this.ct.removeEventListener(TOUCH_EVENTS.move, this, false);
+                this.ct.removeEventListener(TOUCH_EVENTS.end, this, false);
+                this.ct = null;
             }
         }
     };
 
     dummyStyle = null;
+
+    window.DragLoader = DragLoader;
+
 })(window);
